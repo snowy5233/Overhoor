@@ -1,9 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import { loadLists } from '../storage'
 
+function shuffledIndices(count) {
+  const idx = Array.from({ length: count }, (_, i) => i)
+  return idx.sort(() => Math.random() - 0.5)
+}
+
 export default function Flashcards({ t, navigate, listId }) {
   const [list, setList] = useState(null)
-  const [order, setOrder] = useState([])
+  const [order, setOrder] = useState(null)
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [done, setDone] = useState(false)
@@ -11,22 +16,20 @@ export default function Flashcards({ t, navigate, listId }) {
   useEffect(() => {
     const found = loadLists().find((l) => l.id === listId)
     setList(found || null)
+    setOrder(found ? shuffledIndices(found.items.length) : null)
+    setIndex(0)
+    setFlipped(false)
+    setDone(false)
   }, [listId])
 
   const start = () => {
-    if (!list) return
-    const idx = list.items.map((_, i) => i)
-    setOrder(idx.sort(() => Math.random() - 0.5))
+    setOrder(shuffledIndices(list.items.length))
     setIndex(0)
     setFlipped(false)
     setDone(false)
   }
 
-  useEffect(() => {
-    if (list) start()
-  }, [list])
-
-  if (!list || list.items.length === 0) {
+  if (!list || !order || list.items.length === 0) {
     return (
       <div className="page">
         <button className="link" onClick={() => navigate('home')}>{t.list.backToLists}</button>
@@ -50,6 +53,10 @@ export default function Flashcards({ t, navigate, listId }) {
   }
 
   const item = list.items[order[index]]
+
+  if (!item) {
+    return <div className="loading">…</div>
+  }
 
   const flip = () => setFlipped((f) => !f)
 

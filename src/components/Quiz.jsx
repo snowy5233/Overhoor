@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   answersMatch,
   getListProgress,
@@ -8,7 +8,7 @@ import {
   updateListProgress,
 } from '../storage'
 
-function buildQuestions(list, t) {
+function buildQuestions(list) {
   const items = list.items.map((item, index) => ({ ...item, index }))
   const ask = (item, dir) => ({
     index: item.index,
@@ -16,19 +16,23 @@ function buildQuestions(list, t) {
     answer: dir === 'def' ? item.term : item.definition,
   })
   return items.flatMap((item) => {
-    const dirs = item.direction === 'def' ? ['def'] : item.direction === 'term' ? ['term'] : ['term', 'def']
+    const dirs =
+      item.direction === 'def' ? ['def'] : item.direction === 'term' ? ['term'] : ['term', 'def']
     return dirs.map((dir) => ask(item, dir))
   })
 }
 
+function shuffled(questions) {
+  return [...questions].sort(() => Math.random() - 0.5)
+}
+
 export default function Quiz({ t, navigate, listId }) {
   const [list, setList] = useState(null)
-  const [questions, setQuestions] = useState([])
+  const [questions, setQuestions] = useState(null)
   const [current, setCurrent] = useState(0)
   const [input, setInput] = useState('')
   const [checked, setChecked] = useState(null)
   const [results, setResults] = useState([])
-  const [streak, setStreak] = useState(0)
   const [bestStreak, setBestStreak] = useState(0)
   const [finished, setFinished] = useState(false)
   const inputRef = useRef(null)
@@ -36,46 +40,38 @@ export default function Quiz({ t, navigate, listId }) {
   useEffect(() => {
     const found = loadLists().find((l) => l.id === listId)
     setList(found || null)
-  }, [listId])
-
-  const start = (shuffle = true) => {
-    if (!list) return
-    let qs = buildQuestions(list)
-    if (shuffle) qs = [...qs].sort(() => Math.random() - 0.5)
-    setQuestions(qs)
+    setQuestions(found ? shuffled(buildQuestions(found)) : null)
     setCurrent(0)
     setInput('')
     setChecked(null)
     setResults([])
-    setStreak(0)
+    setBestStreak(0)
+    setFinished(false)
+  }, [listId])
+
+  const start = () => {
+    setQuestions(shuffled(buildQuestions(list)))
+    setCurrent(0)
+    setInput('')
+    setChecked(null)
+    setResults([])
     setBestStreak(0)
     setFinished(false)
     inputRef.current?.focus()
   }
 
-  useEffect(() => {
-    if (list) start(true)
-  }, [list])
-
-  const question = questions[current]
+  const question = questions && questions[current]
 
   const check = () => {
     if (!question || checked !== null) return
     const correct = answersMatch(input, question.answer)
     setChecked(correct)
     setResults((r) => [...r, { correct }])
-    setStreak((s) => {
-      const next = correct ? s + 1 : 0
-      setBestStreak((b) => Math.max(b, next))
-      return next
-    })
   }
 
   const next = () => {
     if (current + 1 >= questions.length) {
-      const finalResults = [...results]
-      const progress = updateListProgress(loadProgress(), listId, finalResults)
-      saveProgress(progress)
+      saveProgress(updateListProgress(loadProgress(), listId, results))
       setFinished(true)
       return
     }
@@ -85,16 +81,7 @@ export default function Quiz({ t, navigate, listId }) {
     inputRef.current?.focus()
   }
 
-  if (!list) {
-    return (
-      <div className="page">
-        <button className="link" onClick={() => navigate('home')}>{t.list.backToLists}</button>
-        <p className="empty-title">{t.quiz.emptyList}</p>
-      </div>
-    )
-  }
-
-  if (list.items.length === 0) {
+  if (!list || list.items.length === 0) {
     return (
       <div className="page">
         <button className="link" onClick={() => navigate('home')}>{t.list.backToLists}</button>
@@ -102,6 +89,10 @@ export default function Quiz({ t, navigate, listId }) {
         <button className="btn" onClick={() => navigate('list', listId)}>{t.list.editList}</button>
       </div>
     )
+  }
+
+  if (!question) {
+    return <div className="loading">…</div>
   }
 
   if (finished) {
@@ -119,10 +110,10 @@ export default function Quiz({ t, navigate, listId }) {
           {correct} {t.quiz.correctAnswers} · {total - correct} {t.quiz.wrongAnswers}
         </p>
         <p className="score-line">
-          {t.quiz.streakBest}: {bestStreak}
+          {t.quiz.streakBest}: {Math.max(bestStreak, p.bestStreak)}
         </p>
         <div className="hero-actions">
-          <button className="btn primary" onClick={() => start(true)}>{t.quiz.again}</button>
+          <button className="btn primary" onClick={start}>{t.quiz.again}</button>
           <button className="btn" onClick={() => navigate('home')}>{t.quiz.back}</button>
           <button className="btn ghost" onClick={() => navigate('flashcards', listId)}>
             {t.home.flashcards}
@@ -148,7 +139,11 @@ export default function Quiz({ t, navigate, listId }) {
               className="input"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && (checked === null ? check() : next())}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                if (checked === null) check()
+                else next()
+              }}
               placeholder={t.quiz.yourAnswer}
               aria-label={t.quiz.yourAnswer}
               autoFocus
